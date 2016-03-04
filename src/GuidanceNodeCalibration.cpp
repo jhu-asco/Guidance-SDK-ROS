@@ -4,6 +4,7 @@
  *  Created on: Apr 29, 2015
  */
 
+#include <csignal>
 #include <stdio.h>
 #include <string.h>
 #include <iostream>
@@ -17,6 +18,11 @@
 
 #include "DJI_guidance.h"
 #include "DJI_utility.h"
+
+// Dynamic reconfigure
+#include <guidance/GuidanceNodeCalibrationConfig.h>
+#include <dynamic_reconfigure/server.h>
+
 
 #include <geometry_msgs/TransformStamped.h> //IMU
 #include <geometry_msgs/Vector3Stamped.h> //velocity
@@ -34,6 +40,9 @@ ros::Publisher velocity_pub;
 ros::Publisher ultrasonic_pub;
 ros::Publisher cam_info_left_pub; // camera info msg publishers
 ros::Publisher cam_info_right_pub;
+
+boost::shared_ptr<dynamic_reconfigure::Server<guidance::GuidanceNodeCalibrationConfig> >reconfigserver;
+dynamic_reconfigure::Server<guidance::GuidanceNodeCalibrationConfig>::CallbackType reconfigcallbacktype;
 
 using namespace cv;
 
@@ -91,6 +100,25 @@ static const char R_YML_NAME[]      = "rectification_matrix";
 static const char P_YML_NAME[]      = "projection_matrix";
 static const char DMODEL_YML_NAME[] = "distortion_model";
 
+exposure_param para;
+void paramreqCallback(guidance::GuidanceNodeCalibrationConfig &config , uint32_t level)
+{
+  para.m_camera_pair_index = config.camera_index;
+  para.m_is_auto_exposure = config.is_auto_exposure ? 1 : 0;
+
+  // set exposure parameters
+  if(para.m_is_auto_exposure) 
+  {
+    para.m_expected_brightness = config.expected_brightness; 
+  }
+  else 
+  {
+    para.m_exposure_time = config.exposure_time;
+  }
+  //para.m_camera_pair_index = CAMERA_ID;
+  set_exposure_param(&para);
+}
+
 // struct to parse camera calibration YAML 
 struct SimpleMatrix
 {
@@ -117,6 +145,7 @@ void transfer_SimpleMatrix_from_YML_to_ROSmsg(const YAML::Node& node, SimpleMatr
 
 void read_params_from_yaml_and_fill_cam_info_msg(std::string& file_name, sensor_msgs::CameraInfo& cam_info)
 {   
+    //std::cout << "Reading from " << file_name << std::endl;
     std::ifstream fin(file_name.c_str());
     YAML::Node doc = YAML::Load(fin);
 
@@ -156,7 +185,7 @@ int my_callback(int data_type, int data_len, char *content)
 
 		if ( data->m_greyscale_image_left[CAMERA_ID] ){
 			memcpy(g_greyscale_image_left.data, data->m_greyscale_image_left[CAMERA_ID], IMAGE_SIZE);
-			imshow("left",  g_greyscale_image_left);
+			//imshow("left",  g_greyscale_image_left);
 			// publish left greyscale image
 			cv_bridge::CvImage left_8;
 			g_greyscale_image_left.copyTo(left_8.image);
@@ -174,7 +203,7 @@ int my_callback(int data_type, int data_len, char *content)
 		}
 		if ( data->m_greyscale_image_right[CAMERA_ID] ){
 			memcpy(g_greyscale_image_right.data, data->m_greyscale_image_right[CAMERA_ID], IMAGE_SIZE);
-			imshow("right", g_greyscale_image_right);
+			//imshow("right", g_greyscale_image_right);
 			// publish right greyscale image
 			cv_bridge::CvImage right_8;
 			g_greyscale_image_right.copyTo(right_8.image);
@@ -193,7 +222,7 @@ int my_callback(int data_type, int data_len, char *content)
 		if ( data->m_depth_image[CAMERA_ID] ){
 			memcpy(g_depth.data, data->m_depth_image[CAMERA_ID], IMAGE_SIZE * 2);
 			g_depth.convertTo(depth8, CV_8UC1);
-			imshow("depth", depth8);
+			//imshow("depth", depth8);
 			//publish depth image
 			cv_bridge::CvImage depth_16;
 			g_depth.copyTo(depth_16.image);
@@ -203,15 +232,15 @@ int my_callback(int data_type, int data_len, char *content)
 			depth_image_pub.publish(depth_16.toImageMsg());
 		}
 		
-        key = waitKey(1);
+        //key = waitKey(1);
     }
 
     /* imu */
     if ( e_imu == data_type && NULL != content )
     {
         imu *imu_data = (imu*)content;
-        printf( "frame index: %d, stamp: %d\n", imu_data->frame_index, imu_data->time_stamp );
-        printf( "imu: [%f %f %f %f %f %f %f]\n", imu_data->acc_x, imu_data->acc_y, imu_data->acc_z, imu_data->q[0], imu_data->q[1], imu_data->q[2], imu_data->q[3] );
+        //printf( "frame index: %d, stamp: %d\n", imu_data->frame_index, imu_data->time_stamp );
+        //printf( "imu: [%f %f %f %f %f %f %f]\n", imu_data->acc_x, imu_data->acc_y, imu_data->acc_z, imu_data->q[0], imu_data->q[1], imu_data->q[2], imu_data->q[3] );
  	
     	// publish imu data
 		geometry_msgs::TransformStamped g_imu;
@@ -230,8 +259,8 @@ int my_callback(int data_type, int data_len, char *content)
     if ( e_velocity == data_type && NULL != content )
     {
         velocity *vo = (velocity*)content;
-        printf( "frame index: %d, stamp: %d\n", vo->frame_index, vo->time_stamp );
-        printf( "vx:%f vy:%f vz:%f\n", 0.001f * vo->vx, 0.001f * vo->vy, 0.001f * vo->vz );
+        //printf( "frame index: %d, stamp: %d\n", vo->frame_index, vo->time_stamp );
+        //printf( "vx:%f vy:%f vz:%f\n", 0.001f * vo->vx, 0.001f * vo->vy, 0.001f * vo->vz );
 	
 		// publish velocity
 		geometry_msgs::Vector3Stamped g_vo;
@@ -247,13 +276,13 @@ int my_callback(int data_type, int data_len, char *content)
     if ( e_obstacle_distance == data_type && NULL != content )
     {
         obstacle_distance *oa = (obstacle_distance*)content;
-        printf( "frame index: %d, stamp: %d\n", oa->frame_index, oa->time_stamp );
-        printf( "obstacle distance:" );
+        //printf( "frame index: %d, stamp: %d\n", oa->frame_index, oa->time_stamp );
+        //printf( "obstacle distance:" );
         for ( int i = 0; i < CAMERA_PAIR_NUM; ++i )
         {
-            printf( " %f ", 0.01f * oa->distance[i] );
+            //printf( " %f ", 0.01f * oa->distance[i] );
         }
-		printf( "\n" );
+		//printf( "\n" );
 
 		// publish obstacle distance
 		sensor_msgs::LaserScan g_oa;
@@ -269,10 +298,10 @@ int my_callback(int data_type, int data_len, char *content)
     if ( e_ultrasonic == data_type && NULL != content )
     {
         ultrasonic_data *ultrasonic = (ultrasonic_data*)content;
-        printf( "frame index: %d, stamp: %d\n", ultrasonic->frame_index, ultrasonic->time_stamp );
+        //printf( "frame index: %d, stamp: %d\n", ultrasonic->frame_index, ultrasonic->time_stamp );
         for ( int d = 0; d < CAMERA_PAIR_NUM; ++d )
         {
-            printf( "ultrasonic distance: %f, reliability: %d\n", ultrasonic->ultrasonic[d] * 0.001f, (int)ultrasonic->reliability[d] );
+            //printf( "ultrasonic distance: %f, reliability: %d\n", ultrasonic->ultrasonic[d] * 0.001f, (int)ultrasonic->reliability[d] );
         }
 	
 		// publish ultrasonic data
@@ -297,8 +326,21 @@ int my_callback(int data_type, int data_len, char *content)
 #define RETURN_IF_ERR(err_code) { if( err_code ){ release_transfer(); \
 std::cout<<"Error: "<<(e_sdk_err_code)err_code<<" at "<<__LINE__<<","<<__FILE__<<std::endl; return -1;}}
 
+void int_handler(int x)
+{
+	/* release data transfer */
+	int err_code = stop_transfer();
+	//RETURN_IF_ERR(err_code);
+	//make sure the ack packet from GUIDANCE is received
+	sleep(1);
+	std::cout << "release_transfer" << std::endl;
+	err_code = release_transfer();
+	//RETURN_IF_ERR(err_code);
+}
 int main(int argc, char** argv)
 {
+  signal(SIGINT,int_handler);
+  /*
 	if(argc>1){
 		printf("This is demo program showing data from Guidance.\n\t" 
 			" 'a','d','w','s','x' to select sensor direction.\n\t"
@@ -308,9 +350,9 @@ int main(int argc, char** argv)
 			" 'q' to quit.");
 		return 0;
 	}
-	
+	*/
     /* initialize ros */
-    ros::init(argc, argv, "GuidanceNode");
+    ros::init(argc, argv, "guidance");
     ros::NodeHandle my_node;
 	my_node.getParam("/left_param_file", camera_params_left);
     my_node.getParam("/right_param_file", camera_params_right);
@@ -323,6 +365,10 @@ int main(int argc, char** argv)
     ultrasonic_pub			= my_node.advertise<sensor_msgs::LaserScan>("/guidance/ultrasonic",1);
     cam_info_right_pub      = my_node.advertise<sensor_msgs::CameraInfo>("/guidance/right/camera_info",1);
     cam_info_left_pub       = my_node.advertise<sensor_msgs::CameraInfo>("/guidance/left/camera_info",1);
+
+    reconfigserver.reset(new dynamic_reconfigure::Server<guidance::GuidanceNodeCalibrationConfig>(my_node));
+    reconfigcallbacktype = boost::bind(&paramreqCallback, _1, _2);
+    reconfigserver->setCallback(reconfigcallbacktype);
 
     /* initialize guidance */
     reset_config();
@@ -365,18 +411,17 @@ int main(int argc, char** argv)
     RETURN_IF_ERR(err_code);
 	
 	// for setting exposure
-	exposure_param para;
 	para.m_is_auto_exposure = 1;
 	para.m_step = 10;
 	para.m_expected_brightness = 120;
-    para.m_camera_pair_index = CAMERA_ID;
+  para.m_camera_pair_index = CAMERA_ID;
 	
 	std::cout << "start_transfer" << std::endl;
 
 	while (ros::ok())
 	{
 		g_event.wait_event();
-		if (key > 0)
+		/*if (key > 0)
 			// set exposure parameters
 			if(key=='j' || key=='k' || key=='m' || key=='n'){
 				if(key=='j')
@@ -418,6 +463,7 @@ int main(int argc, char** argv)
 				RETURN_IF_ERR(err_code);
 				key = 0;
 			}
+      */
 			ros::spinOnce();
 	}
 

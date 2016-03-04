@@ -4,12 +4,14 @@
  *  Created on: Apr 29, 2015
  */
 
+#include <csignal>
 #include <stdio.h>
 #include <string.h>
 #include <iostream>
 #include <ros/ros.h>
 #include <cv_bridge/cv_bridge.h>
 #include <sensor_msgs/Image.h>
+#include <sensor_msgs/CameraInfo.h>
 #include <sensor_msgs/image_encodings.h>
 
 #include <opencv/cv.h>
@@ -22,6 +24,8 @@
 #include <geometry_msgs/Vector3Stamped.h> //velocity
 #include <sensor_msgs/LaserScan.h> //obstacle distance & ultrasonic
 
+ros::Publisher cam_info_left_pub;
+ros::Publisher cam_info_right_pub;
 ros::Publisher depth_image_pub;
 ros::Publisher left_image_pub;
 ros::Publisher right_image_pub;
@@ -36,6 +40,7 @@ using namespace cv;
 #define HEIGHT 240
 #define IMAGE_SIZE (HEIGHT * WIDTH)
 
+bool print_debug = false;
 char        	key       = 0;
 e_vbus_index	CAMERA_ID = e_vbus1;
 DJI_lock        g_lock;
@@ -44,6 +49,7 @@ Mat             g_greyscale_image_left(HEIGHT, WIDTH, CV_8UC1);
 Mat				g_greyscale_image_right(HEIGHT, WIDTH, CV_8UC1);
 Mat				g_depth(HEIGHT,WIDTH,CV_16SC1);
 Mat				depth8(HEIGHT, WIDTH, CV_8UC1);
+sensor_msgs::CameraInfo cam_info;
 
 std::ostream& operator<<(std::ostream& out, const e_sdk_err_code value){
 	const char* s = 0;
@@ -80,50 +86,69 @@ int my_callback(int data_type, int data_len, char *content)
         image_data* data = (image_data*)content;
 
 		if ( data->m_greyscale_image_left[CAMERA_ID] ){
-			memcpy(g_greyscale_image_left.data, data->m_greyscale_image_left[CAMERA_ID], IMAGE_SIZE);
-			imshow("left",  g_greyscale_image_left);
-			// publish left greyscale image
-			cv_bridge::CvImage left_8;
-			g_greyscale_image_left.copyTo(left_8.image);
-			left_8.header.frame_id  = "guidance";
-			left_8.header.stamp	= ros::Time::now();
-			left_8.encoding		= sensor_msgs::image_encodings::MONO8;
-			left_image_pub.publish(left_8.toImageMsg());
+      if(left_image_pub.getNumSubscribers()>0)
+      {
+        memcpy(g_greyscale_image_left.data, data->m_greyscale_image_left[CAMERA_ID], IMAGE_SIZE);
+        //imshow("left",  g_greyscale_image_left);
+        // publish left greyscale image
+        cv_bridge::CvImage left_8;
+        g_greyscale_image_left.copyTo(left_8.image);
+        left_8.header.frame_id  = "guidance";
+        left_8.header.stamp	= ros::Time::now();
+        left_8.encoding		= sensor_msgs::image_encodings::MONO8;
+        left_image_pub.publish(left_8.toImageMsg());
+      }
 		}
 		if ( data->m_greyscale_image_right[CAMERA_ID] ){
-			memcpy(g_greyscale_image_right.data, data->m_greyscale_image_right[CAMERA_ID], IMAGE_SIZE);
-			imshow("right", g_greyscale_image_right);
-			// publish right greyscale image
-			cv_bridge::CvImage right_8;
-			g_greyscale_image_right.copyTo(right_8.image);
-			right_8.header.frame_id  = "guidance";
-			right_8.header.stamp	 = ros::Time::now();
-			right_8.encoding  	 = sensor_msgs::image_encodings::MONO8;
-			right_image_pub.publish(right_8.toImageMsg());
+      if(right_image_pub.getNumSubscribers()>0)
+      {
+        memcpy(g_greyscale_image_right.data, data->m_greyscale_image_right[CAMERA_ID], IMAGE_SIZE);
+        //imshow("right", g_greyscale_image_right);
+        // publish right greyscale image
+        cv_bridge::CvImage right_8;
+        g_greyscale_image_right.copyTo(right_8.image);
+        right_8.header.frame_id  = "guidance";
+        right_8.header.stamp	 = ros::Time::now();
+        right_8.encoding  	 = sensor_msgs::image_encodings::MONO8;
+        right_image_pub.publish(right_8.toImageMsg());
+      }
 		}
 		if ( data->m_depth_image[CAMERA_ID] ){
 			memcpy(g_depth.data, data->m_depth_image[CAMERA_ID], IMAGE_SIZE * 2);
 			g_depth.convertTo(depth8, CV_8UC1);
-			imshow("depth", depth8);
+			//imshow("depth", depth8);
 			//publish depth image
-			cv_bridge::CvImage depth_16;
-			g_depth.copyTo(depth_16.image);
-			depth_16.header.frame_id  = "guidance";
-			depth_16.header.stamp	  = ros::Time::now();
-			depth_16.encoding	  = sensor_msgs::image_encodings::MONO16;
-			depth_image_pub.publish(depth_16.toImageMsg());
+      if(depth_image_pub.getNumSubscribers()>0)
+      {
+        cv_bridge::CvImage depth_16;
+        g_depth.copyTo(depth_16.image);
+        depth_16.header.frame_id  = "guidance";
+        depth_16.header.stamp	  = ros::Time::now();
+        depth_16.encoding	  = sensor_msgs::image_encodings::MONO16;
+        depth_image_pub.publish(depth_16.toImageMsg());
+        cam_info.header.stamp = depth_16.header.stamp;
+      }
+      else
+      {
+        cam_info.header.stamp = ros::Time::now();
+      }
+      cam_info.header.frame_id  = "guidance";
+      cam_info_left_pub.publish(cam_info);
+      cam_info_right_pub.publish(cam_info);
 		}
 		
-        key = waitKey(1);
+        //key = waitKey(1);
     }
 
     /* imu */
     if ( e_imu == data_type && NULL != content )
     {
         imu *imu_data = (imu*)content;
-        printf( "frame index: %d, stamp: %d\n", imu_data->frame_index, imu_data->time_stamp );
-        printf( "imu: [%f %f %f %f %f %f %f]\n", imu_data->acc_x, imu_data->acc_y, imu_data->acc_z, imu_data->q[0], imu_data->q[1], imu_data->q[2], imu_data->q[3] );
- 	
+        if(print_debug)
+        {
+          printf( "frame index: %d, stamp: %d\n", imu_data->frame_index, imu_data->time_stamp );
+          printf( "imu: [%f %f %f %f %f %f %f]\n", imu_data->acc_x, imu_data->acc_y, imu_data->acc_z, imu_data->q[0], imu_data->q[1], imu_data->q[2], imu_data->q[3] );
+ 	      }
     	// publish imu data
 		geometry_msgs::TransformStamped g_imu;
 		g_imu.header.frame_id = "guidance";
@@ -141,9 +166,11 @@ int my_callback(int data_type, int data_len, char *content)
     if ( e_velocity == data_type && NULL != content )
     {
         velocity *vo = (velocity*)content;
-        printf( "frame index: %d, stamp: %d\n", vo->frame_index, vo->time_stamp );
-        printf( "vx:%f vy:%f vz:%f\n", 0.001f * vo->vx, 0.001f * vo->vy, 0.001f * vo->vz );
-	
+        if(print_debug)
+        {
+          printf( "frame index: %d, stamp: %d\n", vo->frame_index, vo->time_stamp );
+          printf( "vx:%f vy:%f vz:%f\n", 0.001f * vo->vx, 0.001f * vo->vy, 0.001f * vo->vz );
+	      }
 		// publish velocity
 		geometry_msgs::Vector3Stamped g_vo;
 		g_vo.header.frame_id = "guidance";
@@ -158,14 +185,16 @@ int my_callback(int data_type, int data_len, char *content)
     if ( e_obstacle_distance == data_type && NULL != content )
     {
         obstacle_distance *oa = (obstacle_distance*)content;
-        printf( "frame index: %d, stamp: %d\n", oa->frame_index, oa->time_stamp );
-        printf( "obstacle distance:" );
-        for ( int i = 0; i < CAMERA_PAIR_NUM; ++i )
+        if(print_debug)
         {
-            printf( " %f ", 0.01f * oa->distance[i] );
+          printf( "frame index: %d, stamp: %d\n", oa->frame_index, oa->time_stamp );
+          printf( "obstacle distance:" );
+          for ( int i = 0; i < CAMERA_PAIR_NUM; ++i )
+          {
+              printf( " %f ", 0.01f * oa->distance[i] );
+          }
+		      printf( "\n" );
         }
-		printf( "\n" );
-
 		// publish obstacle distance
 		sensor_msgs::LaserScan g_oa;
 		g_oa.ranges.resize(CAMERA_PAIR_NUM);
@@ -180,10 +209,13 @@ int my_callback(int data_type, int data_len, char *content)
     if ( e_ultrasonic == data_type && NULL != content )
     {
         ultrasonic_data *ultrasonic = (ultrasonic_data*)content;
-        printf( "frame index: %d, stamp: %d\n", ultrasonic->frame_index, ultrasonic->time_stamp );
-        for ( int d = 0; d < CAMERA_PAIR_NUM; ++d )
+        if(print_debug)
         {
+          printf( "frame index: %d, stamp: %d\n", ultrasonic->frame_index, ultrasonic->time_stamp );
+          for ( int d = 0; d < CAMERA_PAIR_NUM; ++d )
+          {
             printf( "ultrasonic distance: %f, reliability: %d\n", ultrasonic->ultrasonic[d] * 0.001f, (int)ultrasonic->reliability[d] );
+          }
         }
 	
 		// publish ultrasonic data
@@ -208,8 +240,22 @@ int my_callback(int data_type, int data_len, char *content)
 #define RETURN_IF_ERR(err_code) { if( err_code ){ release_transfer(); \
 std::cout<<"Error: "<<(e_sdk_err_code)err_code<<" at "<<__LINE__<<","<<__FILE__<<std::endl; return -1;}}
 
+void int_handler(int x)
+{
+	/* release data transfer */
+	int err_code = stop_transfer();
+	//RETURN_IF_ERR(err_code);
+	//make sure the ack packet from GUIDANCE is received
+	sleep(1);
+	std::cout << "release_transfer" << std::endl;
+	err_code = release_transfer();
+	//RETURN_IF_ERR(err_code);
+}
+
 int main(int argc, char** argv)
 {
+  signal(SIGINT,int_handler);
+  /*
 	if(argc>1){
 		printf("This is demo program showing data from Guidance.\n\t" 
 			" 'a','d','w','s','x' to select sensor direction.\n\t"
@@ -219,10 +265,12 @@ int main(int argc, char** argv)
 			" 'q' to quit.");
 		return 0;
 	}
-	
+	*/
     /* initialize ros */
     ros::init(argc, argv, "GuidanceNode");
     ros::NodeHandle my_node;
+    cam_info_left_pub			= my_node.advertise<sensor_msgs::CameraInfo>("/guidance/camera_info_left",1);
+    cam_info_right_pub	= my_node.advertise<sensor_msgs::CameraInfo>("/guidance/camera_info_right",1);
     depth_image_pub			= my_node.advertise<sensor_msgs::Image>("/guidance/depth_image",1);
     left_image_pub			= my_node.advertise<sensor_msgs::Image>("/guidance/left_image",1);
     right_image_pub			= my_node.advertise<sensor_msgs::Image>("/guidance/right_image",1);
@@ -253,6 +301,10 @@ int main(int argc, char** argv)
 	{
         std::cout<<cali[i].cu<<"\t"<<cali[i].cv<<"\t"<<cali[i].focal<<"\t"<<cali[i].baseline<<std::endl;
 	}
+  cam_info.K[0] = cali[CAMERA_ID].cu; cam_info.K[2] = cali[CAMERA_ID].focal;
+  cam_info.K[4] = cali[CAMERA_ID].cv; cam_info.K[5] = cali[CAMERA_ID].focal;
+  cam_info.height = HEIGHT;
+  cam_info.width = WIDTH;
 	
     /* select data */
     err_code = select_greyscale_image(CAMERA_ID, true);
@@ -283,6 +335,7 @@ int main(int argc, char** argv)
 	while (ros::ok())
 	{
 		g_event.wait_event();
+    /*
 		if (key > 0)
 			// set exposure parameters
 			if(key=='j' || key=='k' || key=='m' || key=='n'){
@@ -320,11 +373,14 @@ int main(int argc, char** argv)
 				select_greyscale_image(CAMERA_ID, true);
 				select_greyscale_image(CAMERA_ID, false);
 				select_depth_image(CAMERA_ID);
+        cam_info.K[0] = cali[CAMERA_ID].cu; cam_info.K[2] = cali[CAMERA_ID].focal;
+        cam_info.K[4] = cali[CAMERA_ID].cv; cam_info.K[5] = cali[CAMERA_ID].focal;
 
 				err_code = start_transfer();
 				RETURN_IF_ERR(err_code);
 				key = 0;
 			}
+      */
 			ros::spinOnce();
 	}
 
