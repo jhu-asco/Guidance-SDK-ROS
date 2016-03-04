@@ -353,7 +353,7 @@ int main(int argc, char** argv)
 	*/
     /* initialize ros */
     ros::init(argc, argv, "guidance");
-    ros::NodeHandle my_node;
+    ros::NodeHandle my_node("~");
 	my_node.getParam("/left_param_file", camera_params_left);
     my_node.getParam("/right_param_file", camera_params_right);
     depth_image_pub			= my_node.advertise<sensor_msgs::Image>("/guidance/depth_image",1);
