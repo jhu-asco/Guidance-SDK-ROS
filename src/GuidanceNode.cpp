@@ -77,7 +77,7 @@ int my_callback(int data_type, int data_len, char *content)
 {
     g_lock.enter();
 
-    /* image data */
+    /* image data
     if (e_image == data_type && NULL != content)
     {        
         image_data* data = (image_data*)content;
@@ -125,6 +125,7 @@ int my_callback(int data_type, int data_len, char *content)
 		
         key = waitKey(1);
     }
+    */
 
     /* imu */
     if ( e_imu == data_type && NULL != content )
