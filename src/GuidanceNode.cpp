@@ -19,6 +19,7 @@
 
 #include <geometry_msgs/TransformStamped.h> //IMU
 #include <geometry_msgs/Vector3Stamped.h> //velocity
+#include <geometry_msgs/Point.h> // Global position
 #include <sensor_msgs/LaserScan.h> //obstacle distance & ultrasonic
 
 ros::Publisher depth_image_pub;
@@ -28,6 +29,7 @@ ros::Publisher imu_pub;
 ros::Publisher obstacle_distance_pub;
 ros::Publisher velocity_pub;
 ros::Publisher ultrasonic_pub;
+ros::Publisher global_position_pub;
 
 using namespace cv;
 
@@ -189,6 +191,20 @@ int my_callback(int data_type, int data_len, char *content)
 		obstacle_distance_pub.publish(g_oa);
 	}
 
+  /* Motion */
+  if (e_motion == data_type && NULL != content) {
+    motion *data = (motion*)content;
+    if(verbosity >0) {
+      printf("Motionx,y,z: %f,%f,%f", data->position_in_global_x, data->position_in_global_y, data->position_in_global_z);
+    }
+    geometry_msgs::Point position_data;
+    position_data.x = data->position_in_global_x;
+    position_data.y = data->position_in_global_y;
+    position_data.z = data->position_in_global_z;
+
+    global_position_pub.publish(position_data);
+  }
+
     /* ultrasonic */
     if ( e_ultrasonic == data_type && NULL != content )
     {
@@ -249,6 +265,7 @@ int main(int argc, char** argv)
     velocity_pub  			= my_node.advertise<geometry_msgs::Vector3Stamped>("/guidance/velocity",1);
     obstacle_distance_pub	= my_node.advertise<sensor_msgs::LaserScan>("/guidance/obstacle_distance",1);
     ultrasonic_pub			= my_node.advertise<sensor_msgs::LaserScan>("/guidance/ultrasonic",1);
+    global_position_pub			= my_node.advertise<geometry_msgs::Point>("/guidance/global_position",1);
 
     /* initialize guidance */
     reset_config();
